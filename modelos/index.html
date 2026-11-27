@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Representación Arquitectónica VI · Modelos en AR</title>
+<script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f2f2f2; color: #222; }
+  header { padding: 16px 20px 8px; }
+  header small { display: block; color: #777; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  header h1 { margin: 4px 0 0; font-size: 20px; font-weight: 600; }
+  model-viewer { width: 100%; height: 75vh; display: block; background: #e6e6e6; --poster-color: #e6e6e6; }
+  .ar-btn { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); background: #222; color: #fff; border: 0; border-radius: 24px; padding: 12px 22px; font-size: 15px; }
+  footer { padding: 10px 20px; font-size: 13px; color: #666; }
+  .msg { padding: 40px 20px; text-align: center; color: #555; }
+  .lista { padding: 20px; }
+  .lista p { color: #555; margin: 0 0 12px; }
+  .lista a { display: block; padding: 14px 16px; margin-bottom: 8px; background: #fff; border: 1px solid #ccc; border-radius: 6px; color: #222; text-decoration: none; font-size: 16px; }
+  .qr-btn { margin-left: 12px; background: none; border: 1px solid #888; color: #333; border-radius: 4px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <small>Representación Arquitectónica VI · UBB</small>
+  <h1 id="titulo">Modelo</h1>
+</header>
+
+<div id="contenedor"></div>
+
+<footer id="ayuda">Toca «Ver sobre la mesa», apunta la cámara a una superficie plana y mueve el celular lentamente hasta que aparezca el modelo.</footer>
+
+<script>
+  // Uso: index.html?m=apellido_nombre  → carga modelos/apellido_nombre.glb
+  const params = new URLSearchParams(location.search);
+  const m = (params.get('m') || '').replace(/[^a-zA-Z0-9_\-]/g, '');
+  const contenedor = document.getElementById('contenedor');
+  const titulo = document.getElementById('titulo');
+
+  if (!m) {
+    titulo.textContent = 'Modelos en realidad aumentada';
+    contenedor.innerHTML = '<p class="msg">Buscando modelos…</p>';
+    document.getElementById('ayuda').style.display = 'none';
+
+    // Lista los .glb del repositorio (carpeta "modelos" y raíz) usando la API pública de GitHub
+    const usuario = location.hostname.split('.')[0];
+    const partes = location.pathname.split('/').filter(Boolean);
+    const repo = (partes.length && !partes[0].includes('.')) ? partes[0] : location.hostname;
+    const api = 'https://api.github.com/repos/' + usuario + '/' + repo + '/contents/';
+    const leer = ruta => fetch(api + ruta).then(r => r.ok ? r.json() : []).catch(() => []);
+
+    Promise.all([leer('modelos'), leer('Modelos'), leer('')]).then(([a, b, c]) => {
+      const glb = [...a, ...b, ...c]
+        .filter(f => f && f.type === 'file' && /\.glb$/i.test(f.name))
+        .map(f => f.name.replace(/\.glb$/i, ''));
+      const unicos = [...new Set(glb)].sort();
+      if (!unicos.length) {
+        contenedor.innerHTML = '<p class="msg">No se encontraron modelos. Sube un archivo .glb a la carpeta <b>modelos</b>, o escanea el código QR de una entrega.</p>';
+        return;
+      }
+      const base = location.origin + location.pathname;
+      contenedor.innerHTML = '<div class="lista"><p>Elige un modelo:</p>' +
+        unicos.map(n => '<a href="' + base + '?m=' + encodeURIComponent(n) + '">' +
+          n.replace(/[_\-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) + '</a>').join('') +
+        '</div>';
+    });
+  } else {
+    const nombre = m.replace(/[_\-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    titulo.textContent = nombre;
+    document.title = nombre + ' · Modelo en AR';
+
+    const mv = document.createElement('model-viewer');
+    mv.setAttribute('src', 'modelos/' + m + '.glb');
+    mv.setAttribute('alt', 'Modelo 3D de ' + nombre);
+    mv.setAttribute('ar', '');
+    mv.setAttribute('ar-modes', 'webxr scene-viewer quick-look');
+    mv.setAttribute('ar-placement', 'floor');
+    mv.setAttribute('ar-scale', 'fixed');
+    mv.setAttribute('camera-controls', '');
+    mv.setAttribute('auto-rotate', '');
+    mv.setAttribute('shadow-intensity', '1');
+    mv.setAttribute('exposure', '1');
+    mv.innerHTML = '<button slot="ar-button" class="ar-btn">Ver sobre la mesa</button>';
+
+    // Busca primero en la carpeta "modelos"; si no está, lo busca suelto junto al index.html
+    // (también acepta la carpeta escrita "Modelos", con mayúscula)
+    const rutas = ['Modelos/' + m + '.glb', m + '.glb'];
+    mv.addEventListener('error', () => {
+      if (rutas.length) {
+        mv.setAttribute('src', rutas.shift());
+        return;
+      }
+      contenedor.innerHTML = '<p class="msg">No se encontró el modelo «' + m + '». Revisa que el archivo se llame <b>' + m + '.glb</b> y que esté subido al repositorio.</p>';
+    });
+    contenedor.appendChild(mv);
+
+    // Botón para descargar un QR limpio (negro sobre blanco) de esta página
+    const btn = document.createElement('button');
+    btn.className = 'qr-btn';
+    btn.textContent = 'Descargar código QR';
+    btn.onclick = () => {
+      const qr = qrcode(0, 'M');
+      qr.addData(location.href);
+      qr.make();
+      const n = qr.getModuleCount(), cel = 20, borde = 4;
+      const lado = (n + borde * 2) * cel;
+      const c = document.createElement('canvas');
+      c.width = c.height = lado;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lado, lado);
+      ctx.fillStyle = '#000';
+      for (let r = 0; r < n; r++) for (let k = 0; k < n; k++)
+        if (qr.isDark(r, k)) ctx.fillRect((k + borde) * cel, (r + borde) * cel, cel, cel);
+      const a = document.createElement('a');
+      a.download = 'qr_' + m + '.png';
+      a.href = c.toDataURL('image/png');
+      a.click();
+    };
+    document.getElementById('ayuda').appendChild(btn);
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+</body>
+</html>
